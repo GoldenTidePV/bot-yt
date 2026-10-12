@@ -1,13 +1,28 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 const fs = require('fs');
 const ytdl = require('@distube/ytdl-core');
 const { MessageMedia } = require('whatsapp-web.js');
 const express = require('express');
 
 const app = express();
-app.get('/', (req, res) => res.send('Bot vivo'));
-app.listen(process.env.PORT || 10000);
+let lastQR = null;
+
+app.get('/', (req, res) => {
+  if (lastQR) {
+    res.send(`
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif">
+        <h2>Escanea este QR con WhatsApp</h2>
+        <img src="${lastQR}" style="width:300px;height:300px" />
+        <p>Se actualiza solo. Si dice BOT LISTO en los Logs, ya puedes cerrar esto.</p>
+        <script>setTimeout(()=>location.reload(), 15000)</script>
+      </div>
+    `);
+  } else {
+    res.send('<h2>Bot vivo - Esperando QR o ya conectado... Revisa los Logs</h2>');
+  }
+});
+app.listen(process.env.PORT || 10000, () => console.log('Web en puerto '+(process.env.PORT || 10000)));
 
 const client = new Client({
   authStrategy: new LocalAuth(),
@@ -18,12 +33,15 @@ const client = new Client({
   }
 });
 
-client.on('qr', qr => {
-  qrcode.generate(qr, {small: true});
-  console.log(qr);
+client.on('qr', async qr => {
+  console.log('QR GENERADO');
+  lastQR = await qrcode.toDataURL(qr);
 });
 
-client.on('ready', () => console.log('BOT LISTO'));
+client.on('ready', () => {
+  console.log('BOT LISTO');
+  lastQR = null;
+});
 
 client.on('message', async msg => {
   let text = msg.body.trim();
