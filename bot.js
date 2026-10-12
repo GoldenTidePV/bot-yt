@@ -1,41 +1,31 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
-const fs = require('fs');
-const ytdl = require('@distube/ytdl-core');
-const { MessageMedia } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const express = require('express');
+const ytdl = require('@distube/ytdl-core');
+const fs = require('fs');
+const path = require('path');
 
-const app = express();
 let lastQR = null;
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-app.get('/', (req, res) => {
-  if (lastQR) {
-    res.send(`
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#111;color:white">
-        <h2>Escanea este QR con WhatsApp</h2>
-        <img src="${lastQR}" style="width:300px;height:300px;background:white;padding:10px" />
-        <p>Se actualiza solo cada 15s</p>
-        <script>setTimeout(()=>location.reload(), 15000)</script>
-      </div>
-    `);
-  } else {
-    res.send('<h1 style="font-family:sans-serif">Bot vivo - Si ves esto y ya escaneaste, todo OK. Si no, espera el QR...</h1>');
-  }
-});
-app.listen(process.env.PORT || 10000, () => console.log('Web lista en puerto '+(process.env.PORT || 10000)));
-
+// Cliente WhatsApp
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: { 
+  puppeteer: {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'] 
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   }
 });
 
-client.on('qr', async qr => {
+client.on('qr', (qr) => {
+  lastQR = qr;
   console.log('QR GENERADO');
-  lastQR = await qrcode.toDataURL(qr);
+  qrcode.generate(qr, { small: true });
+});
+
+client.on('authenticated', () => {
+  console.log('Auth OK');
 });
 
 client.on('ready', () => {
@@ -43,29 +33,54 @@ client.on('ready', () => {
   lastQR = null;
 });
 
-client.on('message', async msg => {
-  let text = msg.body.trim();
-  if (!text || msg.from.includes('@g.us')) return;
-  let isAudio = false;
-  if (text.toLowerCase().startsWith('audio ') || text.toLowerCase().startsWith('mp3 ')) {
-    isAudio = true;
-    text = text.slice(5).trim();
-  }
-  if (!ytdl.validateURL(text)) return;
-  try {
-    const info = await ytdl.getInfo(text);
-    await msg.reply((isAudio?'🎵':'🎬') + ' ' + info.videoDetails.title + '\n⏬ Bajando...');
-    const ext = isAudio?'mp3':'mp4';
-    const file = '/tmp/' + Date.now() + '.' + ext;
-    const opts = isAudio? { quality:'highestaudio', filter:'audioonly' } : { quality:'highest' };
-    ytdl(text, opts).pipe(fs.createWriteStream(file)).on('finish', async () => {
-      const media = MessageMedia.fromFilePath(file);
-      await client.sendMessage(msg.from, media, { caption: (isAudio?'🎵':'🎬') + ' ' + info.videoDetails.title });
-      fs.unlinkSync(file);
-    });
-  } catch (e) { 
-    msg.reply('❌ Error: '+e.message); 
+client.on('auth_failure', (msg) => {
+  console.log('Auth fallo, generando nuevo QR...', msg);
+  lastQR = null;
+});
+
+client.on('disconnected', (reason) => {
+  console.log('Desconectado', reason);
+  lastQR = null;
+});
+
+// Evitar crash por auth timeout
+process.on('unhandledRejection', (reason) => {
+  console.log('Unhandled Rejection:', reason);
+  if (String(reason).includes('auth timeout')) {
+    lastQR = null;
   }
 });
 
-client.initialize();
+client.initialize().catch(err => console.log('Init error:', err));
+
+// Pagina web para ver el QR
+app.get('/', (req, res) => {
+  if (lastQR) {
+    const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(lastQR)}`;
+    res.send(`
+      <div style="text-align:center;font-family:sans-serif;padding:20px">
+        <h2>Escanea este QR en WhatsApp</h2>
+        <img src="${qrImg}" style="width:90vw;max-width:400px;border:10px solid white">
+        <p>Se actualiza cada 15s. Escanea rapido!</p>
+        <script>setTimeout(()=>location.reload(),15000)</script>
+      </div>
+    `);
+  } else {
+    res.send('<h2 style="font-family:sans-serif;text-align:center;margin-top:50px">Bot vivo ✅ Si ya escaneaste, todo OK<br><br>Si no has escaneado, espera 20s y refresca para ver el QR</h2>');
+  }
+});
+
+app.listen(PORT, () => console.log(`Web lista en puerto ${PORT}`));
+
+// --- LOGICA YOUTUBE ---
+client.on('message', async (msg) => {
+  const text = msg.body;
+  if (!ytdl.validateURL(text) && !text.includes('youtu.be')) return;
+
+  try {
+    const url = text.split(' ')[0]; // toma solo el primer link
+    const isAudio = text.toLowerCase().includes('audio');
+
+    await msg.reply(`⏬ Bajando ${isAudio ? 'audio' : 'video'}...`);
+
+    const info = await
