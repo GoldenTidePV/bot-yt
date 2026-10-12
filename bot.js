@@ -11,18 +11,18 @@ let lastQR = null;
 app.get('/', (req, res) => {
   if (lastQR) {
     res.send(`
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#111;color:white">
         <h2>Escanea este QR con WhatsApp</h2>
-        <img src="${lastQR}" style="width:300px;height:300px" />
-        <p>Se actualiza solo. Si dice BOT LISTO en los Logs, ya puedes cerrar esto.</p>
+        <img src="${lastQR}" style="width:300px;height:300px;background:white;padding:10px" />
+        <p>Se actualiza solo cada 15s</p>
         <script>setTimeout(()=>location.reload(), 15000)</script>
       </div>
     `);
   } else {
-    res.send('<h2>Bot vivo - Esperando QR o ya conectado... Revisa los Logs</h2>');
+    res.send('<h1 style="font-family:sans-serif">Bot vivo - Si ves esto y ya escaneaste, todo OK. Si no, espera el QR...</h1>');
   }
 });
-app.listen(process.env.PORT || 10000, () => console.log('Web en puerto '+(process.env.PORT || 10000)));
+app.listen(process.env.PORT || 10000, () => console.log('Web lista en puerto '+(process.env.PORT || 10000)));
 
 const client = new Client({
   authStrategy: new LocalAuth(),
